@@ -10,18 +10,41 @@ from typing import Any
 from arraydict import ArrayDict
 
 
-def format_index(idx: Any) -> str:
-    """Format an index for display."""
+def format_slice(s: slice) -> str:
+    """Format a slice object in Python notation (e.g., 1:5:2 instead of slice(1, 5, 2))."""
+    start = "" if s.start is None else str(s.start)
+    stop = "" if s.stop is None else str(s.stop)
+    step = "" if s.step is None else f":{s.step}"
+    
+    if step:
+        return f"{start}:{stop}{step}"
+    else:
+        return f"{start}:{stop}"
+
+
+def format_index(idx: Any, *, in_tuple: bool = False) -> str:
+    """Format an index for display.
+    
+    Args:
+        idx: The index to format
+        in_tuple: If True, don't wrap tuple in parentheses (for top-level tuple indices)
+    """
     if isinstance(idx, jnp.ndarray):
         if idx.size <= 5:
             return f"jnp.array({idx.tolist()})"
         else:
             return f"jnp.array(shape={idx.shape}, dtype={idx.dtype})"
     elif isinstance(idx, tuple):
-        return f"({', '.join(format_index(i) for i in idx)})"
+        formatted_items = ", ".join(format_index(i) for i in idx)
+        if in_tuple:
+            return formatted_items  # Don't wrap top-level tuple
+        else:
+            return f"({formatted_items})"
     elif isinstance(idx, slice):
-        return repr(idx)
-    elif idx is None or idx is Ellipsis:
+        return format_slice(idx)
+    elif idx is Ellipsis:
+        return '...'
+    elif idx is None:
         return repr(idx)
     else:
         return repr(idx)
@@ -77,7 +100,7 @@ def generate_indexing_log() -> str:
     for name, idx in test_cases:
         try:
             result = ad[idx]
-            idx_str = format_index(idx)
+            idx_str = format_index(idx, in_tuple=isinstance(idx, tuple))
             result_repr = repr(result)
             log_lines.append(f"ad[{idx_str}] ==")
             # Indent the result repr
@@ -85,7 +108,7 @@ def generate_indexing_log() -> str:
                 log_lines.append(f"    {line}")
             log_lines.append("")
         except Exception as e:
-            idx_str = format_index(idx)
+            idx_str = format_index(idx, in_tuple=isinstance(idx, tuple))
             log_lines.append(f"ad[{idx_str}]")
             log_lines.append(f"    ERROR: {type(e).__name__}: {e}")
             log_lines.append("")
@@ -148,14 +171,14 @@ def generate_indexing_log() -> str:
         
         try:
             result = ad[idx]
-            idx_str = format_index(idx)
+            idx_str = format_index(idx, in_tuple=isinstance(idx, tuple))
             result_repr = repr(result)
             log_lines.append(f"ad[{idx_str}] ==")
             for line in result_repr.split("\n"):
                 log_lines.append(f"    {line}")
             log_lines.append("")
         except Exception as e:
-            idx_str = format_index(idx)
+            idx_str = format_index(idx, in_tuple=isinstance(idx, tuple))
             log_lines.append(f"ad[{idx_str}]")
             log_lines.append(f"    ERROR: {type(e).__name__}")
             log_lines.append("")
