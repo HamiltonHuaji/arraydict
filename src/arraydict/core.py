@@ -381,6 +381,12 @@ class ArrayDict:
         
         lines.append(")")
         return "\n".join(lines)
+
+    def __len__(self) -> int:
+        """Return length of the leading batch dimension."""
+        if not self._batch_size:
+            raise TypeError("ArrayDict with scalar batch has no len()")
+        return int(self._batch_size[0])
     
     @staticmethod
     def _format_repr_lines(
