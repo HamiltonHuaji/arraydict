@@ -89,7 +89,7 @@ def generate_indexing_log() -> str:
         ("None (add dim)", None),
         ("Ellipsis", ...),
         ("Int array", jnp.array([0, 2, 4, 6])),
-        ("Bool array", jnp.ones(10, dtype=bool)),
+        ("Bool array", jnp.array([True, False, True, True, False, False, True, False, True, True])),
         ("Tuple with ints", (2, 3)),
         ("Tuple with slice", (slice(1, 4), 2)),
         ("Complex tuple", (None, slice(2, 6), ...)),

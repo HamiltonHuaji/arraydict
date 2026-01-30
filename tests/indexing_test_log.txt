@@ -103,14 +103,14 @@ ad[jnp.array([0, 2, 4, 6])] ==
 ad[jnp.array(shape=(10,), dtype=bool)] ==
     ArrayDict(
         fields={
-            ('nested', 'a'): shape=(10, 8, 4),
-            ('nested', 'b'): shape=(10, 8, 2, 3),
-            ('tuple', 'key'): shape=(10, 8, 7),
-            ('x',): shape=(10, 8, 5),
-            ('y',): shape=(10, 8, 3, 2),
-            ('z',): shape=(10, 8),
+            ('nested', 'a'): shape=(6, 8, 4),
+            ('nested', 'b'): shape=(6, 8, 2, 3),
+            ('tuple', 'key'): shape=(6, 8, 7),
+            ('x',): shape=(6, 8, 5),
+            ('y',): shape=(6, 8, 3, 2),
+            ('z',): shape=(6, 8),
         },
-        batch_size=(10, 8))
+        batch_size=(6, 8))
 
 ad[2, 3] ==
     ArrayDict(
@@ -172,41 +172,41 @@ ad['nested'] ==
 
 Random Combination Tests:
 ----------------------------------------------------------------------------------------------------
-ad[jnp.array([9, 9])] ==
+ad[jnp.array([9])] ==
     ArrayDict(
         fields={
-            ('nested', 'a'): shape=(2, 8, 4),
-            ('nested', 'b'): shape=(2, 8, 2, 3),
-            ('tuple', 'key'): shape=(2, 8, 7),
-            ('x',): shape=(2, 8, 5),
-            ('y',): shape=(2, 8, 3, 2),
-            ('z',): shape=(2, 8),
+            ('nested', 'a'): shape=(1, 8, 4),
+            ('nested', 'b'): shape=(1, 8, 2, 3),
+            ('tuple', 'key'): shape=(1, 8, 7),
+            ('x',): shape=(1, 8, 5),
+            ('y',): shape=(1, 8, 3, 2),
+            ('z',): shape=(1, 8),
         },
-        batch_size=(2, 8))
+        batch_size=(1, 8))
 
-ad[jnp.array([2, 8])] ==
+ad[jnp.array([2, 8, 6])] ==
     ArrayDict(
         fields={
-            ('nested', 'a'): shape=(2, 8, 4),
-            ('nested', 'b'): shape=(2, 8, 2, 3),
-            ('tuple', 'key'): shape=(2, 8, 7),
-            ('x',): shape=(2, 8, 5),
-            ('y',): shape=(2, 8, 3, 2),
-            ('z',): shape=(2, 8),
+            ('nested', 'a'): shape=(3, 8, 4),
+            ('nested', 'b'): shape=(3, 8, 2, 3),
+            ('tuple', 'key'): shape=(3, 8, 7),
+            ('x',): shape=(3, 8, 5),
+            ('y',): shape=(3, 8, 3, 2),
+            ('z',): shape=(3, 8),
         },
-        batch_size=(2, 8))
+        batch_size=(3, 8))
 
-ad[jnp.array([7, 6])] ==
+ad[jnp.array([7])] ==
     ArrayDict(
         fields={
-            ('nested', 'a'): shape=(2, 8, 4),
-            ('nested', 'b'): shape=(2, 8, 2, 3),
-            ('tuple', 'key'): shape=(2, 8, 7),
-            ('x',): shape=(2, 8, 5),
-            ('y',): shape=(2, 8, 3, 2),
-            ('z',): shape=(2, 8),
+            ('nested', 'a'): shape=(1, 8, 4),
+            ('nested', 'b'): shape=(1, 8, 2, 3),
+            ('tuple', 'key'): shape=(1, 8, 7),
+            ('x',): shape=(1, 8, 5),
+            ('y',): shape=(1, 8, 3, 2),
+            ('z',): shape=(1, 8),
         },
-        batch_size=(2, 8))
+        batch_size=(1, 8))
 
 ad[0] ==
     ArrayDict(
@@ -292,17 +292,17 @@ ad[...] ==
         },
         batch_size=(10, 8))
 
-ad[jnp.array([3, 3, 5])] ==
+ad[jnp.array([3])] ==
     ArrayDict(
         fields={
-            ('nested', 'a'): shape=(3, 8, 4),
-            ('nested', 'b'): shape=(3, 8, 2, 3),
-            ('tuple', 'key'): shape=(3, 8, 7),
-            ('x',): shape=(3, 8, 5),
-            ('y',): shape=(3, 8, 3, 2),
-            ('z',): shape=(3, 8),
+            ('nested', 'a'): shape=(1, 8, 4),
+            ('nested', 'b'): shape=(1, 8, 2, 3),
+            ('tuple', 'key'): shape=(1, 8, 7),
+            ('x',): shape=(1, 8, 5),
+            ('y',): shape=(1, 8, 3, 2),
+            ('z',): shape=(1, 8),
         },
-        batch_size=(3, 8))
+        batch_size=(1, 8))
 
 ad[4] ==
     ArrayDict(
