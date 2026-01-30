@@ -246,29 +246,84 @@ class ArrayDict:
     def __repr__(self) -> str:
         """Return a detailed, multi-line representation of the ArrayDict.
         
-        Format similar to TensorDict:
+        Format similar to TensorDict, with nested structures:
         ArrayDict(
             fields={
-                key: shape or nested structure,
+                key: shape,
+                nested_key: ArrayDict(...),
                 ...},
             batch_size=...,
             ...)
         """
+        def format_fields(data: Dict[Tuple[Any, ...], Any], base_indent: str = "") -> List[str]:
+            """Format fields with proper nesting."""
+            lines = []
+            indent_str = base_indent + "        "  # 8 spaces for top-level fields
+            
+            # Group keys by first element
+            grouped: Dict[Any, List[Tuple[Any, ...]]] = {}
+            for key in sorted(data.keys()):
+                if key:
+                    first = key[0]
+                    if first not in grouped:
+                        grouped[first] = []
+                    grouped[first].append(key)
+            
+            # Format each group
+            for first_key in sorted(grouped.keys()):
+                keys_with_prefix = grouped[first_key]
+                
+                if len(keys_with_prefix) == 1 and len(keys_with_prefix[0]) == 1:
+                    # Single key, not nested
+                    key = keys_with_prefix[0]
+                    value = data[key]
+                    if _is_array(value) or isinstance(value, np.ndarray):
+                        lines.append(f"{indent_str}{first_key}: shape={value.shape},")
+                    elif isinstance(value, ArrayDict):
+                        lines.append(f"{indent_str}{first_key}: ArrayDict(batch_size={value.batch_size}),")
+                    else:
+                        lines.append(f"{indent_str}{first_key}: ...,")
+                else:
+                    # Multiple keys with same prefix or nested keys
+                    # Check if all have the same structure (single nested level)
+                    all_length_2 = all(len(k) == 2 for k in keys_with_prefix)
+                    
+                    if all_length_2:
+                        # Format as nested dict
+                        lines.append(f"{indent_str}{first_key}: {{")
+                        nested_indent = indent_str + "    "  # 4 more spaces for nested content
+                        for key in keys_with_prefix:
+                            value = data[key]
+                            rest = key[1]
+                            if _is_array(value) or isinstance(value, np.ndarray):
+                                lines.append(f"{nested_indent}{rest}: shape={value.shape},")
+                            elif isinstance(value, ArrayDict):
+                                lines.append(f"{nested_indent}{rest}: ArrayDict(batch_size={value.batch_size}),")
+                            else:
+                                lines.append(f"{nested_indent}{rest}: ...,")
+                        lines.append(f"{indent_str}}},")
+                    else:
+                        # Mixed depths or deeper nesting - format as nested ArrayDict
+                        nested_data = {}
+                        for key in keys_with_prefix:
+                            rest = key[1:]
+                            nested_data[rest] = data[key]
+                        
+                        nested_ad = ArrayDict(_nest_from_flat(nested_data), batch_size=self.batch_size)
+                        nested_repr = repr(nested_ad)
+                        # Indent nested repr
+                        nested_lines = nested_repr.split("\n")
+                        lines.append(f"{indent_str}{first_key}: {nested_lines[0]}")
+                        for line in nested_lines[1:]:
+                            lines.append(f"{indent_str}{line}")
+            
+            return lines
+        
         lines = ["ArrayDict("]
         lines.append("    fields={")
         
-        # Format each field
-        for key in sorted(self._data.keys()):
-            value = self._data[key]
-            if _is_array(value) or isinstance(value, np.ndarray):
-                # Show full shape for arrays
-                lines.append(f"        {key}: shape={value.shape},")
-            elif isinstance(value, ArrayDict):
-                # Show nested ArrayDict in compact form
-                nested_repr = repr(value).replace("\n", "\n        ")
-                lines.append(f"        {key}: {nested_repr},")
-            else:
-                lines.append(f"        {key}: ...,")
+        field_lines = format_fields(self._data, base_indent="")
+        lines.extend(field_lines)
         
         lines.append("    },")
         lines.append(f"    batch_size={self.batch_size})")
