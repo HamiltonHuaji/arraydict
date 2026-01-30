@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence, SupportsIndex, Tuple, Union, cast, overload
 
 import jax.numpy as jnp
 import numpy as np
@@ -11,6 +11,18 @@ ValueType = Any
 
 
 ArrayLike = Union[jnp.ndarray, np.ndarray]
+
+# Batch indexing types
+BatchIndex = Union[
+    int,
+    SupportsIndex,
+    slice,
+    jnp.ndarray,
+    np.ndarray,
+    None,
+    type(Ellipsis),
+    Tuple[Union[int, SupportsIndex, slice, jnp.ndarray, np.ndarray, None, type(Ellipsis)], ...],
+]
 
 
 def _is_mapping(value: Any) -> bool:
@@ -68,6 +80,35 @@ def _reshape_with_batch(value: Any, new_batch: Tuple[int, ...], old_batch: Tuple
         tail = value.shape[len(old_batch) :]
         return value.reshape(new_batch + tail)
     return value
+
+
+def _normalize_index(index: Any) -> Any:
+    """Normalize index to be compatible with JAX/numpy indexing.
+    
+    Only converts SupportsIndex objects (non-built-in) to int when necessary.
+    Recursively processes tuples.
+    """
+    # Built-in types pass through
+    if isinstance(index, (int, slice, type(None), type(Ellipsis))):
+        return index
+    
+    # Arrays pass through
+    if _is_array(index):
+        return index
+    
+    # Handle SupportsIndex protocol (non-built-in types)
+    if hasattr(index, '__index__'):
+        try:
+            return int(index.__index__())
+        except (TypeError, AttributeError):
+            pass
+    
+    # Handle tuples recursively
+    if isinstance(index, tuple):
+        return tuple(_normalize_index(item) for item in index)
+    
+    # Everything else passes through
+    return index
 
 
 def _apply_index(value: Any, index: Any) -> Any:
@@ -205,22 +246,36 @@ class ArrayDict:
     def __repr__(self) -> str:
         return f"ArrayDict(batch_size={self.batch_size}, keys={list(self._data.keys())})"
 
-    def _is_column_key(self, key: Any) -> bool:
+    def _is_column_key(self, key: Union[str, Tuple[Any, ...], Any]) -> bool:
+        """Check if key is a column key (str or tuple of strings) rather than a batch index.
+        
+        Column keys:
+        - Single string: "key"
+        - Tuple of strings: ("nested", "key")
+        
+        Batch indices (everything else):
+        - int, SupportsIndex: 0, 1, CustomIndex(2)
+        - slice: slice(0, 5)
+        - array: jnp.array([0, 1])
+        - tuple with ints: (1,), (0, 1), (slice(None), 2)
+        - None, Ellipsis
+        """
+        # Single string is a column key
         if isinstance(key, str):
             return (key,) in self._data or any(_starts_with(k, (key,)) for k in self._data)
+        
+        # Tuple: column key only if all elements are strings
         if isinstance(key, tuple):
-            # Check if tuple contains arrays or slices (batch indexing, not column key)
-            for item in key:
-                if _is_array(item) or isinstance(item, slice) or item is None or item is Ellipsis:
-                    return False
-            try:
+            if all(isinstance(k, str) for k in key):
                 return key in self._data or any(_starts_with(k, key) for k in self._data)
-            except TypeError:
-                # If key is unhashable, it's not a column key
-                return False
+            # Tuple with non-strings is a batch index
+            return False
+        
+        # Everything else is a batch index
         return False
 
-    def _select_column(self, key: Any) -> Any:
+    def _select_column(self, key: Union[str, Tuple[Any, ...]]) -> Union[jnp.ndarray, np.ndarray, "ArrayDict"]:
+        """Select column(s) by key, returning array or sub-ArrayDict."""
         key_tuple = _normalize_key(key)
         if key_tuple in self._data:
             return self._data[key_tuple]
@@ -237,15 +292,43 @@ class ArrayDict:
             return sub[()]
         return ArrayDict(_nest_from_flat(sub), batch_size=self.batch_size)
 
-    def __getitem__(self, key: Any) -> Any:
+    @overload
+    def __getitem__(self, key: str) -> Union[jnp.ndarray, np.ndarray, "ArrayDict"]: ...
+    
+    @overload
+    def __getitem__(self, key: Tuple[Any, ...]) -> Union[jnp.ndarray, np.ndarray, "ArrayDict"]: ...
+    
+    @overload
+    def __getitem__(self, key: BatchIndex) -> "ArrayDict": ...
+    
+    def __getitem__(self, key: Union[str, Tuple[Any, ...], BatchIndex]) -> Union[jnp.ndarray, np.ndarray, "ArrayDict"]:
+        """Get item by column key or batch index.
+        
+        Column keys (str or tuple without batch indices) return arrays or sub-ArrayDict.
+        Batch indices (int, slice, array, etc.) return new ArrayDict with indexed batch.
+        
+        Args:
+            key: Column key (str or tuple) or batch index (int, slice, array, etc.)
+            
+        Returns:
+            Array/ArrayDict for column selection, ArrayDict for batch indexing.
+        """
         if self._is_column_key(key):
-            return self._select_column(key)
+            return self._select_column(key)  # type: ignore
         return self._apply_batch_index(key)
 
-    def _apply_batch_index(self, index: Any) -> "ArrayDict":
-        new_data = {k: _apply_index(v, index) for k, v in self._data.items()}
+    def _apply_batch_index(self, index: BatchIndex) -> "ArrayDict":
+        """Apply batch indexing to all arrays, returning new ArrayDict."""
+        # Normalize index only when necessary (for SupportsIndex objects)
+        normalized_index = _normalize_index(index)
+        
+        # Apply index to all arrays
+        new_data = {k: _apply_index(v, normalized_index) for k, v in self._data.items()}
+        
+        # Infer new batch size from applying index to batch shape
         dummy = jnp.empty(self.batch_size)
-        new_batch = tuple(dummy[index].shape)
+        new_batch = tuple(dummy[normalized_index].shape)
+        
         return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
 
     def reshape(self, new_shape: Sequence[int]) -> "ArrayDict":
