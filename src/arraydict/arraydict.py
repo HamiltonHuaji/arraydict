@@ -244,34 +244,36 @@ class ArrayDict:
         return self.batch_size[0]
 
     def __repr__(self) -> str:
-        """Return a concise representation of the ArrayDict.
+        """Return a detailed, multi-line representation of the ArrayDict.
         
-        Format: ArrayDict(batch_size=..., {key: shape, ...})
+        Format similar to TensorDict:
+        ArrayDict(
+            fields={
+                key: shape or nested structure,
+                ...},
+            batch_size=...,
+            ...)
         """
-        if not self._data:
-            return f"ArrayDict(batch_size={self.batch_size})"
+        lines = ["ArrayDict("]
+        lines.append("    fields={")
         
-        # Format keys and their shapes
-        shape_strs = []
+        # Format each field
         for key in sorted(self._data.keys()):
             value = self._data[key]
             if _is_array(value) or isinstance(value, np.ndarray):
-                # Show shape without batch dims
-                feature_dims = value.shape[len(self.batch_size):]
-                shape_str = f"{key}: {feature_dims}"
+                # Show full shape for arrays
+                lines.append(f"        {key}: shape={value.shape},")
             elif isinstance(value, ArrayDict):
-                shape_str = f"{key}: ArrayDict(...)"
+                # Show nested ArrayDict in compact form
+                nested_repr = repr(value).replace("\n", "\n        ")
+                lines.append(f"        {key}: {nested_repr},")
             else:
-                shape_str = f"{key}: ..."
-            shape_strs.append(shape_str)
+                lines.append(f"        {key}: ...,")
         
-        # Limit display to first 3 items if many
-        if len(shape_strs) > 3:
-            shape_str = ", ".join(shape_strs[:3]) + ", ..."
-        else:
-            shape_str = ", ".join(shape_strs)
+        lines.append("    },")
+        lines.append(f"    batch_size={self.batch_size})")
         
-        return f"ArrayDict(batch_size={self.batch_size}, {{{shape_str}}})"
+        return "\n".join(lines)
 
     def _is_column_key(self, key: Union[str, Tuple[Any, ...], Any]) -> bool:
         """Check if key is a column key (str or tuple of strings) rather than a batch index.
