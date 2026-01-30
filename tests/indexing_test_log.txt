@@ -1,0 +1,88 @@
+================================================================================
+ArrayDict Advanced Indexing Test Log
+================================================================================
+
+Initial ArrayDict:
+ArrayDict(batch_size=(10, 8), {('nested', 'a'): (4,), ('nested', 'b'): (2, 3), ('tuple', 'key'): (7,), ...})
+
+Single Index Tests:
+--------------------------------------------------------------------------------
+ad[0]
+  → batch_size=(8,)
+
+ad[-1]
+  → batch_size=(8,)
+
+ad[slice(1, 5, None)]
+  → batch_size=(4, 8)
+
+ad[slice(None, None, 2)]
+  → batch_size=(5, 8)
+
+ad[None]
+  → batch_size=(1, 10, 8)
+
+ad[Ellipsis]
+  → batch_size=(10, 8)
+
+ad[jnp.array([0, 2, 4, 6])]
+  → batch_size=(4, 8)
+
+ad[jnp.array(shape=(10,), dtype=bool)]
+  → batch_size=(10, 8)
+
+ad[(2, 3)]
+  → batch_size=()
+
+ad[(slice(1, 4, None), 2)]
+  → batch_size=(3,)
+
+ad[(None, slice(2, 6, None), Ellipsis)]
+  → batch_size=(1, 4, 8)
+
+Column Selection Tests:
+--------------------------------------------------------------------------------
+ad['x']
+  → shape=(10, 8, 5), dtype=float32
+
+ad[('tuple', 'key')]
+  → shape=(10, 8, 7), dtype=float32
+
+ad[('nested', 'a')]
+  → shape=(10, 8, 4), dtype=float32
+
+Random Combination Tests (with array indices):
+--------------------------------------------------------------------------------
+ad[jnp.array([9, 9, 0])]
+  → batch_size=(3, 8)
+
+ad[jnp.array([2, 8, 6])]
+  → batch_size=(3, 8)
+
+ad[jnp.array([7, 6, 2])]
+  → batch_size=(3, 8)
+
+ad[0]
+  → batch_size=(8,)
+
+ad[slice(3, 6, None)]
+  → batch_size=(3, 8)
+
+ad[5]
+  → batch_size=(8,)
+
+ad[None]
+  → batch_size=(1, 10, 8)
+
+ad[slice(0, 1, None)]
+  → batch_size=(1, 8)
+
+ad[None]
+  → batch_size=(1, 10, 8)
+
+ad[Ellipsis]
+  → batch_size=(10, 8)
+
+================================================================================
+Test Log Generated Successfully
+================================================================================

@@ -244,7 +244,34 @@ class ArrayDict:
         return self.batch_size[0]
 
     def __repr__(self) -> str:
-        return f"ArrayDict(batch_size={self.batch_size}, keys={list(self._data.keys())})"
+        """Return a concise representation of the ArrayDict.
+        
+        Format: ArrayDict(batch_size=..., {key: shape, ...})
+        """
+        if not self._data:
+            return f"ArrayDict(batch_size={self.batch_size})"
+        
+        # Format keys and their shapes
+        shape_strs = []
+        for key in sorted(self._data.keys()):
+            value = self._data[key]
+            if _is_array(value) or isinstance(value, np.ndarray):
+                # Show shape without batch dims
+                feature_dims = value.shape[len(self.batch_size):]
+                shape_str = f"{key}: {feature_dims}"
+            elif isinstance(value, ArrayDict):
+                shape_str = f"{key}: ArrayDict(...)"
+            else:
+                shape_str = f"{key}: ..."
+            shape_strs.append(shape_str)
+        
+        # Limit display to first 3 items if many
+        if len(shape_strs) > 3:
+            shape_str = ", ".join(shape_strs[:3]) + ", ..."
+        else:
+            shape_str = ", ".join(shape_strs)
+        
+        return f"ArrayDict(batch_size={self.batch_size}, {{{shape_str}}})"
 
     def _is_column_key(self, key: Union[str, Tuple[Any, ...], Any]) -> bool:
         """Check if key is a column key (str or tuple of strings) rather than a batch index.
