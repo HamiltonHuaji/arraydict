@@ -112,9 +112,19 @@ def _normalize_index(index: Any) -> Any:
 
 
 def _apply_index(value: Any, index: Any) -> Any:
+    """Apply index to value, treating scalars as object arrays for consistent behavior."""
     if _is_array(value) or isinstance(value, np.ndarray):
-        return value[index]
-    return value
+        result = value[index]
+    else:
+        # For non-array values, wrap as object array and apply index
+        arr = np.array(value, dtype=object)
+        result = arr[index]
+    
+    # If result is still a scalar/string after indexing, wrap it back as object array
+    if not (_is_array(result) or isinstance(result, np.ndarray)):
+        result = np.array(result, dtype=object)
+    
+    return result
 
 
 def _apply_take(value: Any, indices: Any, axis: int) -> Any:
@@ -525,6 +535,53 @@ class ArrayDict:
         new_data = {k: _apply_take(v, indices, axis) for k, v in self._data.items()}
         dummy = jnp.empty(self.batch_size)
         new_batch = tuple(jnp.take(dummy, indices, axis=axis).shape)
+        return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
+
+    def squeeze(self, dim: int) -> "ArrayDict":
+        """Remove a batch dimension of size 1.
+        
+        Args:
+            dim: Batch dimension index to squeeze.
+            
+        Raises:
+            ValueError: If the dimension is not of size 1.
+        """
+        if dim < 0 or dim >= len(self.batch_size):
+            raise ValueError(f"Dimension {dim} out of range for batch_size {self.batch_size}")
+        if self.batch_size[dim] != 1:
+            raise ValueError(
+                f"Cannot squeeze dimension {dim} with size {self.batch_size[dim]}; must be 1"
+            )
+        
+        new_batch = self.batch_size[:dim] + self.batch_size[dim + 1 :]
+        new_data = {}
+        for key, value in self._data.items():
+            if _is_array(value) or isinstance(value, np.ndarray):
+                new_data[key] = jnp.squeeze(value, axis=dim)
+            else:
+                new_data[key] = value
+        
+        return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
+
+    def unsqueeze(self, dim: int) -> "ArrayDict":
+        """Insert a new batch dimension of size 1 at the specified position.
+        
+        Args:
+            dim: Position to insert the new dimension (0 <= dim <= len(batch_size)).
+        """
+        if dim < 0 or dim > len(self.batch_size):
+            raise ValueError(
+                f"Dimension {dim} out of range for unsqueeze in batch_size {self.batch_size}"
+            )
+        
+        new_batch = self.batch_size[:dim] + (1,) + self.batch_size[dim:]
+        new_data = {}
+        for key, value in self._data.items():
+            if _is_array(value) or isinstance(value, np.ndarray):
+                new_data[key] = jnp.expand_dims(value, axis=dim)
+            else:
+                new_data[key] = value
+        
         return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
 
     def to_nested_dict(self) -> Dict[Any, Any]:
