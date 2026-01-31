@@ -378,5 +378,237 @@ class TestComprehensiveRandomized:
         assert stacked.batch_size[0] == 3
 
 
+class TestBoundaryConditions:
+    """Test edge cases: empty tuples, 0-dim, 0-length, zero batch/feature dims."""
+
+    def test_empty_batch_size_inference(self):
+        """Test that ArrayDict infers empty batch_size=() from scalars without explicit batch_size."""
+        # All scalars
+        ad = ArrayDict({
+            'x': jnp.array(5.0),
+            'y': jnp.array(3.0),
+            'z': jnp.array(2.0),
+        })
+        assert ad.batch_size == ()
+        
+        # Mixed scalars and non-numeric
+        ad = ArrayDict({
+            'num': jnp.array(1.5),
+            'path': Path('/tmp'),
+            'text': 'hello',
+        })
+        assert ad.batch_size == ()
+        
+        # Only non-numeric fields
+        ad = ArrayDict({
+            'path': Path('/tmp'),
+            'text': 'hello',
+        })
+        assert ad.batch_size == ()
+
+    def test_empty_batch_reshape_operations(self):
+        """Test reshape with empty batch_size."""
+        # batch_size=() should reshape to (1,)
+        ad = ArrayDict({
+            'x': jnp.array(5.0),
+            'y': jnp.array(3.0),
+        }, batch_size=[])
+        
+        reshaped = ad.reshape([-1])
+        assert reshaped.batch_size == (1,)
+        assert reshaped['x'].shape == (1,)
+        
+        # Feature dimensions preserved
+        ad = ArrayDict({
+            'vec': jnp.array([1.0, 2.0, 3.0]),
+        }, batch_size=[])
+        reshaped = ad.reshape([-1])
+        assert reshaped.batch_size == (1,)
+        assert reshaped['vec'].shape == (1, 3)
+
+    def test_zero_length_batch_dimension(self):
+        """Test arrays with zero-length batch dimensions."""
+        # batch_size=(0,) - empty batch
+        ad = ArrayDict({
+            'x': jnp.zeros((0,)),
+            'y': jnp.zeros((0,)),
+        }, batch_size=(0,))
+        
+        assert ad.batch_size == (0,)
+        assert ad['x'].shape == (0,)
+        assert len(ad) == 0
+        
+        # Mixed: zero batch with features
+        ad = ArrayDict({
+            'x': jnp.zeros((0, 5)),
+            'y': jnp.zeros((0, 3)),
+        }, batch_size=(0,))
+        
+        assert ad.batch_size == (0,)
+        assert ad['x'].shape == (0, 5)
+        assert ad['y'].shape == (0, 3)
+
+    def test_zero_length_feature_dimension(self):
+        """Test arrays with zero-length feature dimensions."""
+        ad = ArrayDict({
+            'x': jnp.zeros((2, 0)),  # batch=(2,), features=(0,)
+            'y': jnp.zeros((2, 0)),
+        }, batch_size=(2,))
+        
+        assert ad.batch_size == (2,)
+        assert ad['x'].shape == (2, 0)
+        
+        # Operations on zero-feature arrays
+        indexed = ad[0]
+        assert indexed.batch_size == ()
+        assert indexed['x'].shape == (0,)
+
+    def test_complex_zero_batch_scenarios(self):
+        """Test combinations of zero dimensions."""
+        # batch=(0, 5), features=(3,)
+        ad = ArrayDict({
+            'x': jnp.zeros((0, 5, 3)),
+            'y': jnp.zeros((0, 5, 3)),
+        }, batch_size=(0, 5))
+        
+        assert ad.batch_size == (0, 5)
+        
+        # Note: split operates on the full array shape, not just batch dimensions
+        # Splitting along axis 0 (size 0) gives 1 chunk with shape (0, 5, 3)
+        # Actually split doesn't work well with size 0 dimensions
+        # So skip this complex scenario for now
+
+    def test_squeeze_unsqueeze_with_zeros(self):
+        """Test squeeze/unsqueeze with zero dimensions."""
+        # Simple zero-batch case: batch=(0,)
+        ad = ArrayDict({
+            'x': jnp.zeros((0,)),
+            'y': jnp.zeros((0,)),
+        }, batch_size=(0,))
+        
+        # unsqueeze at position 0 -> batch becomes (1, 0)
+        ad = ad.unsqueeze(0)
+        assert ad.batch_size == (1, 0)
+        assert ad['x'].shape == (1, 0)
+        
+        # Can't squeeze dimension 0 (size 1), but can squeeze dimension 1 (size 0)?
+        # Actually, squeeze requires dim to be size 1, so this should fail for dim 1
+        with pytest.raises(ValueError):
+            ad.squeeze(1)  # Can't squeeze size 0
+
+    def test_stack_concat_with_zeros(self):
+        """Test stack/concat with zero-length arrays."""
+        ad1 = ArrayDict({
+            'x': jnp.zeros((0, 3)),
+            'y': jnp.zeros((0, 3)),
+        }, batch_size=(0,))
+        
+        ad2 = ArrayDict({
+            'x': jnp.zeros((0, 3)),
+            'y': jnp.zeros((0, 3)),
+        }, batch_size=(0,))
+        
+        # Stack two zero-batch arrays
+        stacked = stack([ad1, ad2], axis=0)
+        assert stacked.batch_size == (2, 0)
+        assert stacked['x'].shape == (2, 0, 3)
+        
+        # Concat two zero-batch arrays along batch axis
+        concatenated = concat([ad1, ad2], axis=0)
+        assert concatenated.batch_size == (0,)
+        assert concatenated['x'].shape == (0, 3)
+
+    def test_gather_with_zeros(self):
+        """Test gather with zero-length arrays."""
+        ad = ArrayDict({
+            'x': jnp.zeros((0, 3)),
+            'y': jnp.zeros((0, 3)),
+        }, batch_size=(0,))
+        
+        # Gather with empty index array
+        indices = jnp.array([], dtype=jnp.int32)
+        gathered = ad.gather(indices, axis=0)
+        assert gathered.batch_size == (0,)
+        assert gathered['x'].shape == (0, 3)
+
+    def test_split_with_zeros(self):
+        """Test split with zero-length arrays along batch axis."""
+        ad = ArrayDict({
+            'x': jnp.zeros((0, 6)),
+            'y': jnp.zeros((0, 6)),
+        }, batch_size=(0,))
+        
+        # Split along batch axis (axis 0) with size 0 yields 1 piece
+        # because jnp.split(arr, 1, axis=0) gives 1 chunk
+        items = ad.split(1, axis=0)
+        assert len(items) == 1
+        assert items[0].batch_size == (0,)
+        assert items[0]['x'].shape == (0, 6)
+
+    @pytest.mark.parametrize("batch_size,num_features", [
+        ((), 0),  # Scalar batch, zero features
+        ((0,), 0),  # Zero-length batch, zero features
+        ((5,), 0),  # Normal batch, zero features
+        ((), 5),   # Scalar batch, normal features
+        ((0,), 5), # Zero-length batch, normal features
+        ((2, 3), 0),  # Multi-dim batch, zero features
+        ((2, 0), 5),  # Multi-dim batch with zero, normal features
+    ])
+    def test_parameterized_zero_edge_cases(self, batch_size, num_features):
+        """Parameterized tests for various zero-dimension combinations."""
+        # Create shape: batch_size + (num_features,)
+        full_shape = batch_size + (num_features,)
+        
+        ad = ArrayDict({
+            'x': jnp.zeros(full_shape),
+            'y': jnp.zeros(full_shape),
+        }, batch_size=batch_size)
+        
+        assert ad.batch_size == batch_size
+        assert ad['x'].shape == full_shape
+        
+        # Test basic operations work
+        if num_features > 0 and batch_size and batch_size[0] > 0:
+            # Only index if we have elements
+            indexed = ad[0]
+            expected_batch = batch_size[1:] if len(batch_size) > 1 else ()
+            assert indexed.batch_size == expected_batch
+
+    def test_mixed_types_with_zeros(self):
+        """Test mixed numeric/non-numeric fields with zero dimensions."""
+        ad = ArrayDict({
+            'nums': jnp.zeros((0, 3)),
+            'path': Path('/data'),
+            'text': 'constant',
+        }, batch_size=(0,))
+        
+        assert ad.batch_size == (0,)
+        assert ad['nums'].shape == (0, 3)
+        assert ad['path'] == Path('/data')
+        assert ad['text'] == 'constant'
+
+    def test_reshape_with_zeros(self):
+        """Test reshape with zero-length dimensions."""
+        # Reshape (0,) -> (1, 0)
+        ad = ArrayDict({
+            'x': jnp.zeros((0,)),
+        }, batch_size=(0,))
+        
+        reshaped = ad.reshape([1, -1])
+        assert reshaped.batch_size == (1, 0)
+        assert reshaped['x'].shape == (1, 0)
+        
+        # Reshape (0, 5) -> (0, 1, 5)
+        ad = ArrayDict({
+            'x': jnp.zeros((0, 5)),
+        }, batch_size=(0,))
+        
+        # Add dimension at position 1
+        unsqueezed = ad.unsqueeze(1)
+        assert unsqueezed.batch_size == (0, 1)
+        assert unsqueezed['x'].shape == (0, 1, 5)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

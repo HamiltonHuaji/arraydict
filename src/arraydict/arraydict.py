@@ -257,9 +257,11 @@ def _apply_concat(values: List[Any], axis: int) -> Any:
 def _resolve_batch_size(batch_size: Optional[Union[int, Sequence[int]]], shapes: List[Tuple[int, ...]]) -> Tuple[int, ...]:
 
     if batch_size is None:
+        if not shapes:
+            # No array values to infer from - default to scalar
+            return ()
         inferred = _common_prefix(shapes)
-        if not inferred:
-            raise ValueError("Unable to infer batch_size from provided values.")
+        # inferred can be empty tuple () which is valid (all scalars)
         return inferred
     if isinstance(batch_size, int):
         return (batch_size,)
@@ -740,7 +742,7 @@ class ArrayDict:
     def _resolve_new_batch(self, new_shape: Tuple[int, ...]) -> Tuple[int, ...]:
         if -1 not in new_shape:
             return new_shape
-        old_size = int(np.prod(self.batch_size)) if self.batch_size else 0
+        old_size = int(np.prod(self.batch_size))  # prod([]) = 1, so this always works
         known = 1
         missing_index = None
         for i, dim in enumerate(new_shape):
