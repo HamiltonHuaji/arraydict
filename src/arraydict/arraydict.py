@@ -37,7 +37,81 @@ def _is_array(value: Any) -> bool:
     return isinstance(value, (jnp.ndarray, np.ndarray))
 
 
+def _is_pure_numpy(value: Any) -> bool:
+    """Check if value is a pure NumPy array (not JAX-wrapped)."""
+    return isinstance(value, np.ndarray) and not isinstance(value, jnp.ndarray)
+
+
+def _is_jax_array(value: Any) -> bool:
+    """Check if value is a JAX array."""
+    return isinstance(value, jnp.ndarray)
+
+
+def _is_object_array(value: Any) -> bool:
+    """Check if value is an array with object dtype (non-numeric data)."""
+    return isinstance(value, np.ndarray) and value.dtype == object
+
+
+def _dispatch_array_op(
+    value: Any,
+    jax_op: callable,
+    numpy_op: callable,
+    *args,
+    **kwargs
+) -> Any:
+    """
+    Dispatch array operation based on value type.
+    
+    Invariants enforced:
+    - Pure numpy arrays (object dtype) use numpy_op
+    - JAX arrays use jax_op
+    - Non-arrays return unchanged
+    
+    Args:
+        value: Array to operate on
+        jax_op: Operation for JAX arrays (e.g., jnp.squeeze)
+        numpy_op: Operation for NumPy arrays (e.g., np.squeeze)
+        *args, **kwargs: Arguments passed to the operation
+        
+    Returns:
+        Result of operation, maintaining array type
+    """
+    if _is_pure_numpy(value):
+        return numpy_op(value, *args, **kwargs)
+    elif _is_jax_array(value):
+        return jax_op(value, *args, **kwargs)
+    else:
+        return value
+
+
+def _validate_dimension(dim: int, batch_size: Tuple[int, ...], operation: str) -> None:
+    """Validate dimension index for batch operations."""
+    if dim < 0 or dim >= len(batch_size):
+        raise ValueError(
+            f"Dimension {dim} out of range for {operation} with batch_size {batch_size}"
+        )
+
+
+def _validate_squeeze_dimension(dim: int, batch_size: Tuple[int, ...]) -> None:
+    """Validate that dimension can be squeezed (size must be 1)."""
+    _validate_dimension(dim, batch_size, "squeeze")
+    if batch_size[dim] != 1:
+        raise ValueError(
+            f"Cannot squeeze dimension {dim} with size {batch_size[dim]}; must be 1"
+        )
+
+
+def _validate_unsqueeze_dimension(dim: int, batch_size: Tuple[int, ...]) -> None:
+    """Validate dimension index for unsqueeze (can be at end)."""
+    if dim < 0 or dim > len(batch_size):
+        raise ValueError(
+            f"Dimension {dim} out of range for unsqueeze in batch_size {batch_size}"
+        )
+
+
 def _normalize_key(key: Any) -> Tuple[Any, ...]:
+
+
     if isinstance(key, tuple):
         return key
     return (key,)
@@ -73,13 +147,21 @@ def _ensure_object_array(value: Any) -> np.ndarray:
 
 
 def _reshape_with_batch(value: Any, new_batch: Tuple[int, ...], old_batch: Tuple[int, ...]) -> Any:
-    if _is_array(value):
-        tail = value.shape[len(old_batch) :]
-        return value.reshape(new_batch + tail)
-    if isinstance(value, np.ndarray):
-        tail = value.shape[len(old_batch) :]
-        return value.reshape(new_batch + tail)
-    return value
+    """
+    Reshape array preserving feature dimensions beyond batch.
+    
+    Invariant: Only batch dimensions change, feature dims preserved.
+    """
+    if not _is_array(value):
+        return value
+    
+    tail = value.shape[len(old_batch):]
+    new_shape = new_batch + tail
+    
+    # Use appropriate reshape based on array type
+    return _dispatch_array_op(value, 
+                               lambda v: v.reshape(new_shape),
+                               lambda v: v.reshape(new_shape))
 
 
 def _normalize_index(index: Any) -> Any:
@@ -128,38 +210,52 @@ def _apply_index(value: Any, index: Any) -> Any:
 
 
 def _apply_take(value: Any, indices: Any, axis: int) -> Any:
-    if isinstance(value, jnp.ndarray):
-        return jnp.take(value, indices, axis=axis)
-    if isinstance(value, np.ndarray):
-        return np.take(value, indices, axis=axis)
-    return value
+    """Apply take/indexing operation along an axis."""
+    return _dispatch_array_op(value, jnp.take, np.take, indices, axis=axis)
 
 
 def _apply_split(value: Any, num: int, axis: int) -> List[Any]:
-    if isinstance(value, jnp.ndarray):
-        return list(jnp.split(value, num, axis=axis))
-    if isinstance(value, np.ndarray):
-        return list(np.split(value, num, axis=axis))
+    """Split array into num parts along axis."""
+    def jax_split(arr, n, ax):
+        return list(jnp.split(arr, n, axis=ax))
+    
+    def numpy_split(arr, n, ax):
+        return list(np.split(arr, n, axis=ax))
+    
+    if _is_array(value):
+        if _is_pure_numpy(value):
+            return numpy_split(value, num, axis)
+        else:
+            return jax_split(value, num, axis)
     return [value for _ in range(num)]
 
 
 def _apply_stack(values: List[Any], axis: int) -> Any:
-    if isinstance(values[0], jnp.ndarray):
-        return jnp.stack(values, axis=axis)
-    if isinstance(values[0], np.ndarray):
+    """Stack a list of arrays along a new axis."""
+    if not values:
+        return values
+    first = values[0]
+    if _is_pure_numpy(first):
         return np.stack(values, axis=axis)
+    elif _is_jax_array(first):
+        return jnp.stack(values, axis=axis)
     return values
 
 
 def _apply_concat(values: List[Any], axis: int) -> Any:
-    if isinstance(values[0], jnp.ndarray):
-        return jnp.concatenate(values, axis=axis)
-    if isinstance(values[0], np.ndarray):
+    """Concatenate a list of arrays along an existing axis."""
+    if not values:
+        return values
+    first = values[0]
+    if _is_pure_numpy(first):
         return np.concatenate(values, axis=axis)
+    elif _is_jax_array(first):
+        return jnp.concatenate(values, axis=axis)
     return values
 
 
 def _resolve_batch_size(batch_size: Optional[Union[int, Sequence[int]]], shapes: List[Tuple[int, ...]]) -> Tuple[int, ...]:
+
     if batch_size is None:
         inferred = _common_prefix(shapes)
         if not inferred:
@@ -259,12 +355,87 @@ class ArrayDict:
         Format similar to TensorDict, with nested structures:
         ArrayDict(
             fields={
-                key: shape,
+                key: Tensor(shape=..., dtype=...),
+                str_key: StringTensor(shape=..., content=['...', ...]),
                 nested_key: ArrayDict(...),
                 ...},
             batch_size=...,
             ...)
         """
+        def format_value(value: Any, max_items: int = 3) -> str:
+            """Format a single value with intelligent type detection."""
+            # Check if it's an array (JAX or numpy)
+            is_jax = _is_array(value)
+            is_numpy = isinstance(value, np.ndarray)
+            
+            if is_jax or is_numpy:
+                # Convert to numpy for inspection if needed
+                arr = np.asarray(value) if is_jax else value
+                
+                if arr.dtype == object:
+                    # Object array - check content type
+                    flat = arr.flatten()
+                    if len(flat) == 0:
+                        return f"ObjectArray(shape={arr.shape}, dtype=object, empty=True)"
+                    
+                    # Sample first few non-None elements to determine type
+                    sample_items = []
+                    sample_types = set()
+                    for item in flat[:min(20, len(flat))]:
+                        if item is not None:
+                            sample_items.append(item)
+                            sample_types.add(type(item))
+                        if len(sample_items) >= 10:
+                            break
+                    
+                    if len(sample_types) == 0:
+                        return f"ObjectArray(shape={arr.shape}, dtype=object, all_none=True)"
+                    
+                    if len(sample_types) == 1:
+                        elem_type = next(iter(sample_types))
+                        elem_type_name = elem_type.__name__
+                        
+                        # Special handling for strings
+                        if elem_type == str:
+                            # Show sample strings
+                            samples = []
+                            for i, item in enumerate(sample_items[:max_items]):
+                                s = str(item)
+                                if len(s) > 30:
+                                    s = s[:27] + "..."
+                                samples.append(f"'{s}'")
+                            if len(flat) > max_items:
+                                samples.append("...")
+                            content = ", ".join(samples)
+                            return f"StringArray(shape={arr.shape}, content=[{content}])"
+                        elif elem_type.__name__ in ['WindowsPath', 'PosixPath', 'Path']:
+                            # Show sample paths
+                            samples = []
+                            for i, item in enumerate(sample_items[:max_items]):
+                                s = str(item)
+                                if len(s) > 30:
+                                    s = s[:27] + "..."
+                                samples.append(f"'{s}'")
+                            if len(flat) > max_items:
+                                samples.append("...")
+                            content = ", ".join(samples)
+                            return f"PathArray(shape={arr.shape}, content=[{content}])"
+                        else:
+                            # Non-string uniform type
+                            return f"ObjectArray(shape={arr.shape}, dtype={elem_type_name})"
+                    else:
+                        # Mixed types
+                        type_names = sorted([t.__name__ for t in sample_types])
+                        return f"ObjectArray(shape={arr.shape}, dtype=object, types={type_names})"
+                else:
+                    # Regular numeric array
+                    dtype_str = str(arr.dtype)
+                    return f"Tensor(shape={arr.shape}, dtype={dtype_str})"
+            elif isinstance(value, ArrayDict):
+                return f"ArrayDict(batch_size={value.batch_size})"
+            else:
+                return "..."
+        
         def format_fields(data: Dict[Tuple[Any, ...], Any], base_indent: str = "") -> List[str]:
             """Format fields with proper nesting."""
             lines = []
@@ -287,12 +458,8 @@ class ArrayDict:
                     # Single key, not nested
                     key = keys_with_prefix[0]
                     value = data[key]
-                    if _is_array(value) or isinstance(value, np.ndarray):
-                        lines.append(f"{indent_str}{first_key}: shape={value.shape},")
-                    elif isinstance(value, ArrayDict):
-                        lines.append(f"{indent_str}{first_key}: ArrayDict(batch_size={value.batch_size}),")
-                    else:
-                        lines.append(f"{indent_str}{first_key}: ...,")
+                    value_str = format_value(value)
+                    lines.append(f"{indent_str}{first_key}: {value_str},")
                 else:
                     # Multiple keys with same prefix or nested keys
                     # Check if all have the same structure (single nested level)
@@ -305,12 +472,8 @@ class ArrayDict:
                         for key in keys_with_prefix:
                             value = data[key]
                             rest = key[1]
-                            if _is_array(value) or isinstance(value, np.ndarray):
-                                lines.append(f"{nested_indent}{rest}: shape={value.shape},")
-                            elif isinstance(value, ArrayDict):
-                                lines.append(f"{nested_indent}{rest}: ArrayDict(batch_size={value.batch_size}),")
-                            else:
-                                lines.append(f"{nested_indent}{rest}: ...,")
+                            value_str = format_value(value)
+                            lines.append(f"{nested_indent}{rest}: {value_str},")
                         lines.append(f"{indent_str}}},")
                     else:
                         # Mixed depths or deeper nesting - format as nested ArrayDict
@@ -546,20 +709,11 @@ class ArrayDict:
         Raises:
             ValueError: If the dimension is not of size 1.
         """
-        if dim < 0 or dim >= len(self.batch_size):
-            raise ValueError(f"Dimension {dim} out of range for batch_size {self.batch_size}")
-        if self.batch_size[dim] != 1:
-            raise ValueError(
-                f"Cannot squeeze dimension {dim} with size {self.batch_size[dim]}; must be 1"
-            )
+        _validate_squeeze_dimension(dim, self.batch_size)
         
-        new_batch = self.batch_size[:dim] + self.batch_size[dim + 1 :]
-        new_data = {}
-        for key, value in self._data.items():
-            if _is_array(value) or isinstance(value, np.ndarray):
-                new_data[key] = jnp.squeeze(value, axis=dim)
-            else:
-                new_data[key] = value
+        new_batch = self.batch_size[:dim] + self.batch_size[dim + 1:]
+        new_data = {k: _dispatch_array_op(v, jnp.squeeze, np.squeeze, axis=dim) 
+                    for k, v in self._data.items()}
         
         return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
 
@@ -569,18 +723,11 @@ class ArrayDict:
         Args:
             dim: Position to insert the new dimension (0 <= dim <= len(batch_size)).
         """
-        if dim < 0 or dim > len(self.batch_size):
-            raise ValueError(
-                f"Dimension {dim} out of range for unsqueeze in batch_size {self.batch_size}"
-            )
+        _validate_unsqueeze_dimension(dim, self.batch_size)
         
         new_batch = self.batch_size[:dim] + (1,) + self.batch_size[dim:]
-        new_data = {}
-        for key, value in self._data.items():
-            if _is_array(value) or isinstance(value, np.ndarray):
-                new_data[key] = jnp.expand_dims(value, axis=dim)
-            else:
-                new_data[key] = value
+        new_data = {k: _dispatch_array_op(v, jnp.expand_dims, np.expand_dims, axis=dim)
+                    for k, v in self._data.items()}
         
         return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
 
