@@ -212,7 +212,7 @@ def _rows_from_flat(flat: Dict[Tuple[Any, ...], Any], batch_size: Tuple[int, ...
     return rows
 
 
-@dataclass(frozen=True)
+@dataclass
 class ArrayDict:
     _data: Dict[Tuple[Any, ...], Any]
     batch_size: Tuple[int, ...]
@@ -226,8 +226,8 @@ class ArrayDict:
                 shapes.append(value.shape)
         resolved = _resolve_batch_size(batch_size, shapes)
         _validate_batch_size(flat, resolved)
-        object.__setattr__(self, "_data", flat)
-        object.__setattr__(self, "batch_size", resolved)
+        self._data = flat
+        self.batch_size = resolved
 
     def keys(self) -> Iterable[Tuple[Any, ...]]:
         return self._data.keys()
@@ -400,6 +400,96 @@ class ArrayDict:
         if self._is_column_key(key):
             return self._select_column(key)  # type: ignore
         return self._apply_batch_index(key)
+
+    @overload
+    def __setitem__(self, key: str, value: Any) -> None: ...
+
+    @overload
+    def __setitem__(self, key: Tuple[Any, ...], value: Any) -> None: ...
+
+    @overload
+    def __setitem__(self, key: BatchIndex, value: Any) -> None: ...
+
+    def __setitem__(self, key: Union[str, Tuple[Any, ...], BatchIndex], value: Any) -> None:
+        """Set item by column key.
+        
+        Only column assignment is supported for now. Batch/row indexing assignment
+        is not implemented yet.
+        """
+        if isinstance(key, tuple):
+            key_tuple = key
+        elif isinstance(key, str):
+            key_tuple = (key,)
+        else:
+            raise NotImplementedError(
+                "ArrayDict __setitem__ currently supports only column assignment with string keys."
+            )
+
+        if not key_tuple or not all(isinstance(part, str) for part in key_tuple):
+            raise NotImplementedError(
+                "ArrayDict __setitem__ currently supports only column assignment with string keys."
+            )
+
+        new_flat: Dict[Tuple[Any, ...], Any] = {}
+        if isinstance(value, ArrayDict):
+            if value.batch_size != self.batch_size:
+                raise ValueError(
+                    f"Assigned ArrayDict batch_size {value.batch_size} does not match {self.batch_size}."
+                )
+            for sub_key, sub_value in value._data.items():
+                new_flat[key_tuple + sub_key] = sub_value
+        elif _is_mapping(value):
+            _flatten_mapping(cast(Mapping[Any, Any], value), key_tuple, new_flat)
+        elif _is_sequence(value) and not _is_array(value):
+            new_flat[key_tuple] = _ensure_object_array(value)
+        else:
+            new_flat[key_tuple] = value
+
+        _validate_batch_size(new_flat, self.batch_size)
+
+        updated = dict(self._data)
+        updated.update(new_flat)
+        self._data = updated
+
+    def set(self, key: Union[str, Tuple[Any, ...], BatchIndex], value: Any) -> "ArrayDict":
+        """Return a new ArrayDict with the column assignment applied.
+
+        This keeps the original ArrayDict unchanged.
+        """
+        if isinstance(key, tuple):
+            key_tuple = key
+        elif isinstance(key, str):
+            key_tuple = (key,)
+        else:
+            raise NotImplementedError(
+                "ArrayDict set currently supports only column assignment with string keys."
+            )
+
+        if not key_tuple or not all(isinstance(part, str) for part in key_tuple):
+            raise NotImplementedError(
+                "ArrayDict set currently supports only column assignment with string keys."
+            )
+
+        new_flat: Dict[Tuple[Any, ...], Any] = {}
+        if isinstance(value, ArrayDict):
+            if value.batch_size != self.batch_size:
+                raise ValueError(
+                    f"Assigned ArrayDict batch_size {value.batch_size} does not match {self.batch_size}."
+                )
+            for sub_key, sub_value in value._data.items():
+                new_flat[key_tuple + sub_key] = sub_value
+        elif _is_mapping(value):
+            _flatten_mapping(cast(Mapping[Any, Any], value), key_tuple, new_flat)
+        elif _is_sequence(value) and not _is_array(value):
+            new_flat[key_tuple] = _ensure_object_array(value)
+        else:
+            new_flat[key_tuple] = value
+
+        _validate_batch_size(new_flat, self.batch_size)
+
+        updated = dict(self._data)
+        updated.update(new_flat)
+        return ArrayDict(_nest_from_flat(updated), batch_size=self.batch_size)
 
     def _apply_batch_index(self, index: BatchIndex) -> "ArrayDict":
         """Apply batch indexing to all arrays, returning new ArrayDict."""

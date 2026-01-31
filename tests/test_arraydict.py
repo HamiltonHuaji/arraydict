@@ -124,3 +124,43 @@ def test_batch_size_inference():
     arraydict = ArrayDict(source)
     assert arraydict.batch_size == (10,)
     assert arraydict["z"].shape == (10,)
+
+
+def test_setitem_with_str_and_tuple_keys():
+    arraydict = ArrayDict({"base": jnp.zeros((10, 2))}, batch_size=10)
+
+    nested_value = ArrayDict({"a": {"b": jnp.ones((10, 3))}}, batch_size=10)
+    arraydict["group"] = nested_value
+
+    group = arraydict["group"]
+    assert isinstance(group, ArrayDict)
+    assert group["a"]["b"].shape == (10, 3)
+
+    grouped_row = arraydict[1]["group"]["a"]["b"]
+    assert grouped_row.shape == (3,)
+
+    flat_value = ArrayDict({"leaf": jnp.arange(10)}, batch_size=10)
+    arraydict[("nested", "inner")] = flat_value
+
+    nested_inner = arraydict[("nested", "inner")]
+    assert isinstance(nested_inner, ArrayDict)
+    assert nested_inner["leaf"].shape == (10,)
+
+    nested_row = arraydict[2]["nested"]["inner"]["leaf"]
+    assert nested_row.shape == ()
+
+
+def test_set_method_returns_new_instance():
+    arraydict = ArrayDict({"base": jnp.zeros((10, 2))}, batch_size=10)
+    nested_value = ArrayDict({"a": {"b": jnp.ones((10, 3))}}, batch_size=10)
+
+    updated = arraydict.set("group", nested_value)
+    assert "group" not in arraydict.to_nested_dict()
+    assert isinstance(updated["group"], ArrayDict)
+    assert updated["group"]["a"]["b"].shape == (10, 3)
+
+    flat_value = ArrayDict({"leaf": jnp.arange(10)}, batch_size=10)
+    updated2 = updated.set(("nested", "inner"), flat_value)
+    assert ("nested", "inner") not in updated.keys()
+    assert updated2[("nested", "inner")]["leaf"].shape == (10,)
+    assert updated2[1]["nested"]["inner"]["leaf"].shape == ()
