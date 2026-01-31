@@ -164,3 +164,16 @@ def test_set_method_returns_new_instance():
     assert ("nested", "inner") not in updated.keys()
     assert updated2[("nested", "inner")]["leaf"].shape == (10,)
     assert updated2[1]["nested"]["inner"]["leaf"].shape == ()
+
+
+def test_list_of_paths_stored_as_object_array():
+    from pathlib import Path
+
+    paths_list = [[Path(f"file_{i}_{j}.txt") for j in range(3)] for i in range(5)]
+    arraydict = ArrayDict({"files": paths_list}, batch_size=5)
+
+    files = arraydict["files"]
+    assert isinstance(files, np.ndarray)
+    assert files.dtype == object
+    assert files.shape == (5, 3)
+    assert isinstance(files[0][0], Path)

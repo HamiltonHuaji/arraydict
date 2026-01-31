@@ -421,9 +421,7 @@ class ArrayDict:
         elif isinstance(key, str):
             key_tuple = (key,)
         else:
-            raise NotImplementedError(
-                "ArrayDict __setitem__ currently supports only column assignment with string keys."
-            )
+            raise NotImplementedError("ArrayDict __setitem__ currently supports only column assignment with string keys.")
 
         if not key_tuple or not all(isinstance(part, str) for part in key_tuple):
             raise NotImplementedError(
