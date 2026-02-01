@@ -65,6 +65,7 @@ arraydict = ArrayDict(source, batch_size=[10]) # or batch_size=10
 - `arraydict.reshape((5, 2, -1))` reshapes the leading batch dimensions.
 - `arraydict.split(5, axis=0)` splits the ArrayDict into multiple ArrayDict instances along the leading batch dimension, and returns a list of ArrayDicts.
 - `arraydict.gather(indices, axis=0)` gathers elements along the leading batch dimension based on the provided indices.
+- `arraydict.repeat((2, 3))` repeats batch dimensions efficiently without creating intermediate copies. Supports tuple of repeat counts for each batch dimension, or a single int to repeat the first dimension.
 - `arraydict.reshape((5, 2, -1))[None, 2:5, :, ..., None]` combines multiple indexing operations.
 - `arraydict[indices, :]` is advanced indexing with jax arrays of indices.
 - these operations are all non-inplace, returning new ArrayDict instances. the batch_size of the resulting ArrayDict is updated accordingly.

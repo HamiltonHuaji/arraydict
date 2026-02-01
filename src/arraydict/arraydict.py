@@ -351,6 +351,19 @@ class ArrayDict:
             return 0
         return self.batch_size[0]
 
+    @property
+    def ndim(self) -> int:
+        return len(self.batch_size)
+
+    @property
+    def shape(self) -> Tuple[int, ...]:
+        """Get shape - returns batch_size (the public/exposed dimensions).
+        
+        Feature dimensions (after batch dimensions) are private/opaque.
+        Only batch_size is exposed as the public "shape" of the ArrayDict.
+        """
+        return self.batch_size
+
     def __repr__(self) -> str:
         """Return a detailed, multi-line representation of the ArrayDict.
         
@@ -730,6 +743,61 @@ class ArrayDict:
         new_batch = self.batch_size[:dim] + (1,) + self.batch_size[dim:]
         new_data = {k: _dispatch_array_op(v, jnp.expand_dims, np.expand_dims, axis=dim)
                     for k, v in self._data.items()}
+        
+        return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
+
+    def repeat(self, repeats: Union[int, Tuple[int, ...]]) -> "ArrayDict":
+        """Repeat batch dimensions efficiently without creating intermediate copies.
+        
+        Uses jnp.repeat to repeat along batch dimensions. Each field's feature
+        dimensions are preserved unchanged.
+        
+        Args:
+            repeats: Repeat count(s) for batch dimensions:
+                - int: repeat all batch dimensions the same number of times
+                - tuple: repeat count for each batch dimension
+        
+        Returns:
+            New ArrayDict with repeated batch dimensions
+        
+        Example:
+            >>> ad = ArrayDict({'x': np.ones((2, 3, 4))}, batch_size=(2, 3))
+            >>> result = ad.repeat((2, 3))
+            >>> result.batch_size
+            (4, 9)
+            >>> result['x'].shape
+            (4, 9, 4)
+        """
+        # repeats is a tuple where each element is the repeat count for that batch axis
+        if not repeats or all(r == 1 for r in (repeats if isinstance(repeats, tuple) else (repeats,))):
+            return ArrayDict(_nest_from_flat(self._data), batch_size=self.batch_size)
+        
+        # Ensure repeats is a tuple
+        if isinstance(repeats, int):
+            repeats = (repeats,)
+        else:
+            repeats = tuple(repeats)
+        
+        # Pad repeats with 1s for batch dimensions not specified
+        batch_ndim = len(self.batch_size)
+        while len(repeats) < batch_ndim:
+            repeats = repeats + (1,)
+        
+        new_data = {}
+        for key, value in self._data.items():
+            if _is_array(value):
+                # Apply repeat to each batch dimension
+                result = value
+                # Process from last batch dim to first to maintain correct axis positions
+                for axis in range(batch_ndim - 1, -1, -1):
+                    if repeats[axis] > 1:
+                        result = jnp.repeat(result, repeats[axis], axis=axis)
+                new_data[key] = result
+            else:
+                new_data[key] = value
+        
+        # Compute new batch size
+        new_batch = tuple(self.batch_size[i] * repeats[i] for i in range(batch_ndim))
         
         return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
 

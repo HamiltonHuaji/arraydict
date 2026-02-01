@@ -177,3 +177,66 @@ def test_list_of_paths_stored_as_object_array():
     assert files.dtype == object
     assert files.shape == (5, 3)
     assert isinstance(files[0][0], Path)
+
+
+def test_arraydict_repeat():
+    """Test ArrayDict.repeat() instance method for batch dimension repetition."""
+    data = {'x': np.ones((2, 3, 4), dtype=np.float32)}
+    ad = ArrayDict(data, batch_size=(2, 3))
+    
+    # Repeat first batch dimension 3 times
+    result = ad.repeat((3, 1))
+    assert result.batch_size == (6, 3)
+    assert result['x'].shape == (6, 3, 4)
+    # Verify values are repeated correctly
+    assert np.allclose(result['x'], 1.0)
+
+
+def test_arraydict_repeat_multiple_dims():
+    """Test ArrayDict.repeat() with multiple dimension repetition."""
+    data = {'x': np.arange(24, dtype=np.float32).reshape(2, 3, 4)}
+    ad = ArrayDict(data, batch_size=(2, 3))
+    
+    # Repeat both batch dimensions
+    result = ad.repeat((2, 2))
+    assert result.batch_size == (4, 6)
+    assert result['x'].shape == (4, 6, 4)
+
+
+def test_arraydict_repeat_multiple_fields():
+    """Test ArrayDict.repeat() preserves multiple fields."""
+    data = {
+        'x': np.ones((2, 3, 4), dtype=np.float32),
+        'y': np.ones((2, 3, 5), dtype=np.float32) * 2
+    }
+    ad = ArrayDict(data, batch_size=(2, 3))
+    
+    result = ad.repeat((2, 1))
+    assert result.batch_size == (4, 3)
+    assert result['x'].shape == (4, 3, 4)
+    assert result['y'].shape == (4, 3, 5)
+    assert np.allclose(result['x'], 1.0)
+    assert np.allclose(result['y'], 2.0)
+
+
+def test_arraydict_repeat_non_numeric():
+    """Test ArrayDict.repeat() preserves non-numeric fields."""
+    data = {
+        'x': np.ones((2, 3, 4), dtype=np.float32),
+        'name': 'test_array',
+    }
+    ad = ArrayDict(data, batch_size=(2, 3))
+    
+    result = ad.repeat((2, 1))
+    assert result['name'] == 'test_array'
+
+
+def test_arraydict_repeat_single_int():
+    """Test ArrayDict.repeat() with single integer argument (only first dim)."""
+    data = {'x': np.ones((2, 3, 4), dtype=np.float32)}
+    ad = ArrayDict(data, batch_size=(2, 3))
+    
+    # Single int repeats only the first batch dim
+    result = ad.repeat(2)
+    assert result.batch_size == (4, 3)
+    assert result['x'].shape == (4, 3, 4)
