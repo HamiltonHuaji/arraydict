@@ -257,13 +257,22 @@ class TestComprehensiveRandomized:
                     data[key] = jax.random.normal(k, shape)
             items.append(ArrayDict(data, batch_size=batch_size))
         
-        # Stack
-        stacked = stack(items, axis=0)
-        assert stacked.batch_size == (3,) + batch_size
+        # Stack on different axes
+        stacked_axis0 = stack(items, axis=0)
+        assert stacked_axis0.batch_size == (3,) + batch_size
         
-        # Concat
-        concatenated = concat(items, axis=0)
-        assert concatenated.batch_size == (9, 2)
+        stacked_axis1 = stack(items, axis=1)
+        assert stacked_axis1.batch_size == (3, 3, 2)
+        
+        stacked_axis2 = stack(items, axis=2)
+        assert stacked_axis2.batch_size == (3, 2, 3)
+        
+        # Concat on different axes
+        concatenated_axis0 = concat(items, axis=0)
+        assert concatenated_axis0.batch_size == (9, 2)
+        
+        concatenated_axis1 = concat(items, axis=1)
+        assert concatenated_axis1.batch_size == (3, 6)
     
     def test_column_insertion(self):
         """Test inserting new columns dynamically."""

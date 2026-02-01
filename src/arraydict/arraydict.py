@@ -841,7 +841,11 @@ def stack(items: Sequence[ArrayDict], axis: int = 0) -> ArrayDict:
     for key in keys:
         values = [item._data[key] for item in items]
         new_data[key] = _apply_stack(values, axis)
-    new_batch = (len(items),) + items[0].batch_size
+    
+    # Compute new batch_size using dummy arrays to handle all axis cases correctly
+    dummies = [jnp.empty(item.batch_size) for item in items]
+    new_batch = tuple(jnp.stack(dummies, axis=axis).shape)
+    
     return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)
 
 
@@ -856,7 +860,9 @@ def concat(items: Sequence[ArrayDict], axis: int = 0) -> ArrayDict:
     for key in keys:
         values = [item._data[key] for item in items]
         new_data[key] = _apply_concat(values, axis)
-    batch = list(items[0].batch_size)
-    if batch:
-        batch[axis] = new_data[keys[0]].shape[axis]
-    return ArrayDict(_nest_from_flat(new_data), batch_size=tuple(batch))
+    
+    # Compute new batch_size using dummy arrays to handle all axis cases correctly
+    dummies = [jnp.empty(item.batch_size) for item in items]
+    new_batch = tuple(jnp.concat(dummies, axis=axis).shape)
+    
+    return ArrayDict(_nest_from_flat(new_data), batch_size=new_batch)

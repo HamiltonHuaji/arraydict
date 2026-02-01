@@ -115,6 +115,25 @@ def test_stack_and_concat():
     assert concatenated["bar"].batch_size == (20,)
 
 
+def test_stack_different_axes():
+    """Test stack with different axis parameters."""
+    first = ArrayDict({'x': np.ones((5, 4, 3), dtype=np.float32)}, batch_size=(5,))
+    second = ArrayDict({'x': np.ones((5, 4, 3), dtype=np.float32)}, batch_size=(5,))
+    
+    # Stack on axis=0 (default): (2, 5)
+    stacked_axis0 = ad.stack([first, second], axis=0)
+    assert stacked_axis0.batch_size == (2, 5)
+    assert stacked_axis0['x'].shape == (2, 5, 4, 3)
+    
+    # Stack on axis=1: (5, 2)
+    stacked_axis1 = ad.stack([first, second], axis=1)
+    assert stacked_axis1.batch_size == (5, 2)
+    assert stacked_axis1['x'].shape == (5, 2, 4, 3)
+    
+    # Stack on axis=2 (after feature dims starts): (5, 2) still
+    # But this should still work as the axis is applied to full tensor
+
+
 def test_batch_size_inference():
     source = {
         "x": jnp.ones((10, 2)),
